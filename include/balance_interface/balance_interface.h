@@ -8,8 +8,8 @@
 #include <ros/ros.h>
 #include "balance_msg/BalanceCmd.h"
 #include "balance_msg/BalanceOdm.h"
-#include "balance_interface/PosOdm.h"
-#include "balance_interface/PosCmd.h"
+//#include "balance_interface/PosOdm.h"
+//#include "balance_interface/PosCmd.h"
 #include <geometry_msgs/PoseStamped.h>
 
 #define BL_STATUS_ERR		-1
@@ -29,7 +29,7 @@ public:
     void SetBalancerSpeed(int left_speed, int right_speed);
 
     void SetGoalCallback(const geometry_msgs::PoseStamped& msg);
-    void NotifyCurrentPos(float x_pos, int y_pos);
+    void NotifyCurrentPos(float x_pos, float y_pos);
 
 //dfu I/F
 

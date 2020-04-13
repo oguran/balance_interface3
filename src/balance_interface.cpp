@@ -21,8 +21,10 @@ BalanceIF::~BalanceIF()
 
 int BalanceIF::Init()
 {
-  m_targetPos.x = 100.00;
-  m_targetPos.y = 100.00;
+  //m_targetPos.x = 100.00;
+  //m_targetPos.y = 100.00;
+  m_targetPos.x = 0.00;
+  m_targetPos.y = 0.00;
   m_controlMode = BlancerCtrlMode_Move_X_Direction;
 
   m_currentPos.x = 0.00;
@@ -88,6 +90,7 @@ void BalanceIF::BalanceCallback(const balance_msg::BalanceOdm& odm_msg)
 #define TIRE_AROUNT_ENCODER_CNT  (1332)
 #define TIRE_CIRCUMFERENCE       (25)    //cm
 #define BALANCER_CIRCUMFERENCE   (36)    //cm
+#define MOVE_SPEED               (1)
 
 void BalanceIF::MotionControl(int left_enc, int right_enc, int *left_speed, int *right_speed)
 {
@@ -101,7 +104,7 @@ void BalanceIF::MotionControl(int left_enc, int right_enc, int *left_speed, int 
     //Encoder Ave Calc
     aveEncCnt = ((left_enc - m_saveLeftEnc) + (right_enc - m_saveRightEnc)) / 2;
     //distance calc
-    distance = (float)aveEncCnt * ((float)TIRE_CIRCUMFERENCE / TIRE_AROUNT_ENCODER_CNT);
+    distance = (float)aveEncCnt * ((float)TIRE_CIRCUMFERENCE / (float)TIRE_AROUNT_ENCODER_CNT);
 
     if (m_controlMode == BlancerCtrlMode_Move_X_Direction) {
       //X
@@ -117,13 +120,13 @@ void BalanceIF::MotionControl(int left_enc, int right_enc, int *left_speed, int 
 
     if (distanceDiff > 0) {
       //Advance
-      *left_speed = 10;
-      *right_speed = 10;
+      *left_speed = MOVE_SPEED;
+      *right_speed = MOVE_SPEED;
       printf("Advance\n");
     } else if (distanceDiff < 0) {
       //Back
-      *left_speed = -10;
-      *right_speed = -10;
+      *left_speed = -MOVE_SPEED;
+      *right_speed = -MOVE_SPEED;
       printf("Back\n");
     } else {
       //Stop
@@ -154,13 +157,13 @@ void BalanceIF::MotionControl(int left_enc, int right_enc, int *left_speed, int 
 
     if (distanceDiff > 0) {
       //rotation right
-      *left_speed = 10;
-      *right_speed = -10;
+      *left_speed = MOVE_SPEED;
+      *right_speed = -MOVE_SPEED;
       printf("Rotation Right\n");
     } else if (distanceDiff < 0) {
       //rotation left
-      *left_speed = -10;
-      *right_speed = 10;
+      *left_speed = -MOVE_SPEED;
+      *right_speed = MOVE_SPEED;
       printf("Rotation Left\n");
     } else {
       //Stop
@@ -216,7 +219,7 @@ void BalanceIF::SetGoalCallback(const geometry_msgs::PoseStamped& msg)
   //SetBalancerSpeed(0, 0);
 }
 
-void BalanceIF::NotifyCurrentPos(float x_pos, int y_pos)
+void BalanceIF::NotifyCurrentPos(float x_pos, float y_pos)
 {
   geometry_msgs::PoseStamped msg;
   static int seqNo = 0;
