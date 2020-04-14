@@ -50,11 +50,12 @@ void BalanceIF::Start()
   ui_sub = nh.subscribe(
 			"move_base_simple/goal", 10,
 			&BalanceIF::SetGoalCallback, this);
-  ui_pub = nh.advertise<geometry_msgs::PoseStamped>("notify_pos", 10);
+  ui_pub = nh.advertise<geometry_msgs::PoseStamped>("/notify_pos", 10);
 
   //100ms sleep
-  ros::Rate r(10);
-  r.sleep();
+  //ros::Rate r(10);
+  //r.sleep();
+  ros::Duration(0.5).sleep();
 
   //start balancer @note speed:0
   SetBalancerSpeed(0, 0);
