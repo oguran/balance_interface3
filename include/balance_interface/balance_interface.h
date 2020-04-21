@@ -12,7 +12,7 @@
 //#include "balance_interface/PosCmd.h"
 #include <geometry_msgs/PoseStamped.h>
 
-#define BL_STATUS_ERR		-1
+#define BL_STATUS_ERR  -1
 #define BL_STATUS_OK    0
 
 class BalanceIF
@@ -25,7 +25,7 @@ public:
     void Stop();
     void BalanceCallback(const balance_msg::BalanceOdm& odm_msg); //from balancer (notify odm)
 
-    void MotionControl(int left_enc, int right_enc, int *left_speed, int *right_speed);
+    void MotionControl(char start, int left_enc, int right_enc, int *left_speed, int *right_speed);
     void SetBalancerSpeed(int left_speed, int right_speed);
 
     void SetGoalCallback(const geometry_msgs::PoseStamped& msg);
@@ -59,14 +59,15 @@ private:
     int m_saveRightEnc;
 
     enum BalancerCtrlMode {
-      BlancerCtrlMode_Move_X_Direction = 0,
+      BlancerCtrlMode_Initialize = 0,
+      BlancerCtrlMode_Check,
+      BlancerCtrlMode_Move_X_Direction,
       BlancerCtrlMode_Rotation,
       BlancerCtrlMode_Move_Y_Direction,
       BlancerCtrlMode_Goal,
       BlancerCtrlMode_Max,
     };
     BalancerCtrlMode m_controlMode;
-
     //std::String m_test;		//
 
 };

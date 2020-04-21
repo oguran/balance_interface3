@@ -5,7 +5,9 @@
 #include <ros/ros.h>
 
 #include <stdio.h>
-#include <stdlib.h>   //abs() for integer
+//#include <stdlib.h>   //abs() for integer
+#include <cmath>
+#include <algorithm>
 
 #include "balance_interface/balance_interface.h"
 
@@ -25,7 +27,7 @@ int BalanceIF::Init()
   //m_targetPos.y = 100.00;
   m_targetPos.x = 0.00;
   m_targetPos.y = 0.00;
-  m_controlMode = BlancerCtrlMode_Move_X_Direction;
+  m_controlMode = BlancerCtrlMode_Initialize;
 
   m_currentPos.x = 0.00;
   m_currentPos.y = 0.00;
@@ -48,13 +50,10 @@ void BalanceIF::Start()
 
 //for ui
   ui_sub = nh.subscribe(
-			"move_base_simple/goal", 10,
-			&BalanceIF::SetGoalCallback, this);
+            "move_base_simple/goal", 10,
+            &BalanceIF::SetGoalCallback, this);
   ui_pub = nh.advertise<geometry_msgs::PoseStamped>("/notify_pos", 10);
 
-  //100ms sleep
-  //ros::Rate r(10);
-  //r.sleep();
   ros::Duration(0.5).sleep();
 
   //start balancer @note speed:0
@@ -74,7 +73,7 @@ void BalanceIF::BalanceCallback(const balance_msg::BalanceOdm& odm_msg)
     odm_msg.left_enc, odm_msg.right_enc, odm_msg.status_1, odm_msg.status_2, odm_msg.left_speed, odm_msg.right_speed);
   
   //Calc balance Odometry to ui postion
-  MotionControl(odm_msg.left_enc, odm_msg.right_enc, &left_speed, &right_speed);
+  MotionControl(odm_msg.status_1, odm_msg.left_enc, odm_msg.right_enc, &left_speed, &right_speed);
 
   if (odm_msg.status_1) {
     //set balancer speed To Arduino
@@ -87,25 +86,57 @@ void BalanceIF::BalanceCallback(const balance_msg::BalanceOdm& odm_msg)
   printf("\n");
 }
 
+const float PI = 3.14;
+const float TIRE_RADIUS = 4.0; // cm
+const float MOTOR_RATIO_IN = 51.45;
+const float MOTOR_RATIO_OUT = 1.0;
+const float GEAR_RATIO_IN = 45.0;
+const float GEAR_RATIO_OUT = 21.0;
+const float ENCODER_CNT = 12.0;
+const float TIRE_AROUNT_ENCODER_CNT = (MOTOR_RATIO_IN / MOTOR_RATIO_OUT) * (GEAR_RATIO_IN / GEAR_RATIO_OUT) * ENCODER_CNT;
+const float TIRE_CIRCUMFERENCE =  2 * PI * TIRE_RADIUS;
+const float WHEEL_DISTANCE = 10.0;
+const float BALANCER_CIRCUMFERENCE = WHEEL_DISTANCE * PI; // cm
+const int MOVE_SPEED = 2;
+//#define TIRE_AROUNT_ENCODER_CNT  (1332)
+//#define TIRE_CIRCUMFERENCE       (25)    //cm
+//#define BALANCER_CIRCUMFERENCE   (36)    //cm
+//#define MOVE_SPEED               (1)
 
-#define TIRE_AROUNT_ENCODER_CNT  (1332)
-#define TIRE_CIRCUMFERENCE       (25)    //cm
-#define BALANCER_CIRCUMFERENCE   (36)    //cm
-#define MOVE_SPEED               (1)
 
-void BalanceIF::MotionControl(int left_enc, int right_enc, int *left_speed, int *right_speed)
+void BalanceIF::MotionControl(char start, int left_enc, int right_enc, int *left_speed, int *right_speed)
 {
   int aveEncCnt;
   float distance, distanceDiff;
 
-  if ((m_controlMode == BlancerCtrlMode_Move_X_Direction) ||
+  *left_speed = *right_speed = 0;
+  if (m_controlMode == BlancerCtrlMode_Initialize) {
+    m_saveLeftEnc = left_enc;
+    m_saveRightEnc = right_enc;
+    m_currentPos.x = 0.00;
+    m_currentPos.y = 0.00;
+    m_targetPos.x = 0.00;
+    m_targetPos.y = 0.00;
+    m_controlMode = BlancerCtrlMode_Check;
+    printf("Initialized\n");
+  } else if (m_controlMode == BlancerCtrlMode_Check) {
+    //Calc Distance Diff between current and target.
+    distanceDiff = std::max(std::abs(m_targetPos.x - m_currentPos.x), std::abs(m_targetPos.y - m_currentPos.y));
+    //Cold Zone 3cm
+    if (distanceDiff >= 1) {
+      m_controlMode = BlancerCtrlMode_Move_X_Direction;
+      m_saveLeftEnc = left_enc;
+      m_saveRightEnc = right_enc;
+      printf("Go to Target\n");
+    }
+  } else if ((m_controlMode == BlancerCtrlMode_Move_X_Direction) ||
       (m_controlMode == BlancerCtrlMode_Move_Y_Direction)) {
     //Move
 
     //Encoder Ave Calc
     aveEncCnt = ((left_enc - m_saveLeftEnc) + (right_enc - m_saveRightEnc)) / 2;
     //distance calc
-    distance = (float)aveEncCnt * ((float)TIRE_CIRCUMFERENCE / (float)TIRE_AROUNT_ENCODER_CNT);
+    distance = aveEncCnt * (TIRE_CIRCUMFERENCE / TIRE_AROUNT_ENCODER_CNT);
 
     if (m_controlMode == BlancerCtrlMode_Move_X_Direction) {
       //X
@@ -117,7 +148,7 @@ void BalanceIF::MotionControl(int left_enc, int right_enc, int *left_speed, int 
       distanceDiff = m_targetPos.y - m_currentPos.y;
     }
     //Cold Zone 3cm
-    if (abs(distanceDiff) < 3) distanceDiff = 0;
+    if (std::abs(distanceDiff) < 1) distanceDiff = 0;
 
     if (distanceDiff > 0) {
       //Advance
@@ -137,9 +168,9 @@ void BalanceIF::MotionControl(int left_enc, int right_enc, int *left_speed, int 
 
       //Mode Change
       if (m_controlMode == BlancerCtrlMode_Move_X_Direction) {
-	m_controlMode = BlancerCtrlMode_Rotation;
+        m_controlMode = BlancerCtrlMode_Rotation;
       } else {
-	m_controlMode = BlancerCtrlMode_Goal;
+        m_controlMode = BlancerCtrlMode_Goal;
       }
       m_saveLeftEnc = left_enc;
       m_saveRightEnc = right_enc;
@@ -148,20 +179,37 @@ void BalanceIF::MotionControl(int left_enc, int right_enc, int *left_speed, int 
   } else if (m_controlMode == BlancerCtrlMode_Rotation) {
     //rotation
     //Encoder Ave Calc @fix left Only
-    aveEncCnt = (abs(left_enc - m_saveLeftEnc) + abs(right_enc - m_saveRightEnc)) / 2;
+    aveEncCnt = (std::abs(left_enc - m_saveLeftEnc) + std::abs(right_enc - m_saveRightEnc)) / 2;
+    // aveEncCnt = (std::abs(left_enc - m_saveLeftEnc));
     //distance calc
-    distance = (float)aveEncCnt * ((float)TIRE_CIRCUMFERENCE / TIRE_AROUNT_ENCODER_CNT);
+    distance = aveEncCnt * (TIRE_CIRCUMFERENCE / TIRE_AROUNT_ENCODER_CNT);
 
-    distanceDiff = (BALANCER_CIRCUMFERENCE / 4) - distance;
+    distanceDiff = (BALANCER_CIRCUMFERENCE / 4) - distance; // rotate 45 digrees
     //Cold Zone 1mc
-    if (abs(distanceDiff) < 1) distanceDiff = 0;
+    if (std::abs(distanceDiff) < 1) distanceDiff = 0;
+
+    // if (m_currentPos.x >= 0) {
+    //   if (m_targetPos.y > m_currentPos.y) {
+    //     distanceDiff *= -1; // rotation left
+    //   } else {
+    //     distanceDiff *= 1; // rotation right
+    //   }
+    // } else {
+    //   if (m_targetPos.y > m_currentPos.y) {
+    //     distanceDiff *= 1; // rotation right
+    //   } else {
+    //     distanceDiff *= -1; // rogation left
+    //   }
+    // }
+
+    distanceDiff *= -1;
 
     if (distanceDiff > 0) {
       //rotation right
       *left_speed = MOVE_SPEED;
       *right_speed = -MOVE_SPEED;
       printf("Rotation Right\n");
-    } else if (distanceDiff < 0) {
+     } else if (distanceDiff < 0) {
       //rotation left
       *left_speed = -MOVE_SPEED;
       *right_speed = MOVE_SPEED;
@@ -178,16 +226,32 @@ void BalanceIF::MotionControl(int left_enc, int right_enc, int *left_speed, int 
       m_saveRightEnc = right_enc;
     }
 
+  } else if (m_controlMode == BlancerCtrlMode_Goal) {
+    //Goal
+    printf("Goal\n");
+    int lEncCnt = left_enc - m_saveLeftEnc;
+    int rEncCnt = right_enc - m_saveRightEnc;
+    float lDistance = lEncCnt * (TIRE_CIRCUMFERENCE / TIRE_AROUNT_ENCODER_CNT);
+    float rDistance = rEncCnt * (TIRE_CIRCUMFERENCE / TIRE_AROUNT_ENCODER_CNT);
   } else {
     //Goal
     *left_speed = 0;
     *right_speed = 0;
-    printf("Goal\n");
+    printf("Wait\n");
   }
 
-  printf("mode: %d, distanceDiff: %f\n", m_controlMode, distanceDiff);
-  printf("targetPos.x: %f, currentPos.x: %f\n", m_targetPos.x, m_currentPos.x);
-  printf("targetPos.y: %f, currentPos.y: %f\n", m_targetPos.y, m_currentPos.y);
+  // for Debug
+  static const char * m_controlModeStrings[BlancerCtrlMode_Max] = {
+    "Init",
+    "Check",
+    "Move_X",
+    "Rotation",
+    "Move_Y",
+    "Goal",
+  };
+
+  printf("mode: %s, distanceDiff: %f\n", m_controlModeStrings[m_controlMode], distanceDiff);
+  printf("targetPos: %f, %f, currentPos: %f, %f\n", m_targetPos.x, m_targetPos.y, m_currentPos.x, m_currentPos.y);
 
   return;
 }
@@ -210,6 +274,10 @@ void BalanceIF::SetBalancerSpeed(int left_speed, int right_speed)
 
 void BalanceIF::SetGoalCallback(const geometry_msgs::PoseStamped& msg)
 {
+  if (m_controlMode != BlancerCtrlMode_Check) {
+    printf("SetGoalCB: ignored. x=%f, y=%f\n", msg.pose.position.x, msg.pose.position.y);
+    return;
+  }
   //from rvis
   printf("SetGoalCB: x=%f, y=%f\n", msg.pose.position.x, msg.pose.position.y);
 
