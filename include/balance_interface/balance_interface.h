@@ -15,6 +15,34 @@
 #define BL_STATUS_ERR  -1
 #define BL_STATUS_OK    0
 
+class Wait {
+public:
+  Wait() : waiting(false) {};
+  bool start(float duration_sec) {
+    if (waiting) {
+      return false;
+    }
+    waiting = true;
+    end = ros::Time::now() + ros::Duration(duration_sec);
+    return true;
+  }
+  bool isFinish() {
+    if (waiting) {
+      return end <= ros::Time::now();
+    }
+    return true;
+  }
+  bool isWaiting() {
+    return waiting;
+  }
+  void clear() {
+    waiting = false;
+  }
+private:
+  bool waiting;
+  ros::Time end;
+};
+
 class BalanceIF
 {
 public:
@@ -29,7 +57,7 @@ public:
     void SetBalancerSpeed(int left_speed, int right_speed);
 
     void SetGoalCallback(const geometry_msgs::PoseStamped& msg);
-    void NotifyCurrentPos(float x_pos, float y_pos);
+    void NotifyCurrentPos(double x_pos, double y_pos);
 
 //dfu I/F
 
@@ -48,27 +76,31 @@ private:
     ros::Subscriber ui_sub;
 
     struct BalancerPos {
-      float x;
-      float y;
+      double x;
+      double y;
     };
 
     BalancerPos m_targetPos;
     BalancerPos m_currentPos;
+    BalancerPos m_savePos;
 
     int m_saveLeftEnc;
     int m_saveRightEnc;
 
     enum BalancerCtrlMode {
       BlancerCtrlMode_Initialize = 0,
-      BlancerCtrlMode_Check,
+      BlancerCtrlMode_Standby,
       BlancerCtrlMode_Move_X_Direction,
-      BlancerCtrlMode_Rotation,
+      BlancerCtrlMode_Rotation_Left,
       BlancerCtrlMode_Move_Y_Direction,
+      BlancerCtrlMode_Rotation_Right,
       BlancerCtrlMode_Goal,
       BlancerCtrlMode_Max,
     };
     BalancerCtrlMode m_controlMode;
     //std::String m_test;		//
+
+    Wait m_waitForStability;
 
 };
 
