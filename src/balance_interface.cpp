@@ -45,6 +45,9 @@ void BalanceIF::Start()
 {
   ros::NodeHandle nh;
 
+  // m_p0 = ros::Time::now();
+  // m_cnt = 0;
+
 //for balance
   balance_sub = nh.subscribe(
               "/bl/balance_odm", 10,
@@ -100,15 +103,29 @@ const double TIRE_AROUNT_ENCODER_CNT = (MOTOR_RATIO_IN / MOTOR_RATIO_OUT) * (GEA
 const double TIRE_CIRCUMFERENCE =  2 * PI * TIRE_RADIUS; // m
 const double WHEEL_DISTANCE = 0.100; // m
 const double BALANCER_CIRCUMFERENCE = WHEEL_DISTANCE * PI; // m
-const int MOVE_SPEED_STRAIGHT= 3;
+const int MOVE_SPEED_STRAIGHT_HIGH = 8;
+const int MOVE_SPEED_STRAIGHT_MIDDLE = 5;
+const int MOVE_SPEED_STRAIGHT_SLOW = 3;
 const int MOVE_SPEED_ROTATE = 1;
+const int MOVE_SPEED_MAX = 300;
 const double COLD_ZONE = 0.010; // m
+const double SLOW_ZONE = 0.100; // m
+const double MIDDLE_ZONE = 0.200; // m
 const double WAIT_SEC = 2.0;
 
 void BalanceIF::MotionControl(char start, int left_enc, int right_enc, int *left_speed, int *right_speed)
 {
-  int aveEncCnt;
-  double distance, distanceDiff;
+  int aveEncCnt, speed;
+  double distance, distanceDiff, absDiistanceDiff;
+
+  // m_cnt++;
+  // ros::Time p1 = ros::Time::now();
+  // ros::Duration duration = p1 - m_p0;
+  // if (duration > ros::Duration(1.0)) {
+  //   printf("%f Hz (%d/%f)\n", (m_cnt / duration.toSec()), m_cnt, duration.toSec());
+  //   m_p0 = p1;
+  //   m_cnt = 0;
+  // }
 
   *left_speed = *right_speed = 0;
   if (m_waitForStability.isWaiting()) {
@@ -129,6 +146,7 @@ void BalanceIF::MotionControl(char start, int left_enc, int right_enc, int *left
     m_savePos.y = 0.00;
     m_waitForStability.start(WAIT_SEC); // wait for stabiliry
     m_controlMode = BlancerCtrlMode_Standby;
+    m_speed = MOVE_SPEED_MAX;
     printf("Initialized\n");
   } else if (m_controlMode == BlancerCtrlMode_Standby) {
     //Calc Distance Diff between current and target.
@@ -142,6 +160,7 @@ void BalanceIF::MotionControl(char start, int left_enc, int right_enc, int *left
       m_savePos.y = m_currentPos.y; 
       printf("Go to Target\n");
     }
+    m_speed = MOVE_SPEED_MAX;
   } else if ((m_controlMode == BlancerCtrlMode_Move_X_Direction) ||
       (m_controlMode == BlancerCtrlMode_Move_Y_Direction)) {
     //Move
@@ -161,22 +180,35 @@ void BalanceIF::MotionControl(char start, int left_enc, int right_enc, int *left
       distanceDiff = m_targetPos.y - m_currentPos.y;
     }
     //Cold Zone
-    if (std::abs(distanceDiff) < COLD_ZONE) distanceDiff = 0;
+    if (std::abs(distanceDiff) < COLD_ZONE) {
+      distanceDiff = 0;
+      speed = 0;
+    } else if (std::abs(distanceDiff) < SLOW_ZONE) {
+      if (m_speed > MOVE_SPEED_STRAIGHT_SLOW) {
+        speed = MOVE_SPEED_STRAIGHT_SLOW;
+      }
+    } else if (std::abs(distanceDiff) < MIDDLE_ZONE) {
+      if (m_speed > MOVE_SPEED_STRAIGHT_MIDDLE) {
+        speed = MOVE_SPEED_STRAIGHT_MIDDLE;
+      }
+    } else {
+      speed = MOVE_SPEED_STRAIGHT_HIGH;
+    }
 
     if (distanceDiff > 0) {
       //Advance
-      *left_speed = MOVE_SPEED_STRAIGHT;
-      *right_speed = MOVE_SPEED_STRAIGHT;
+      *left_speed = speed;
+      *right_speed = speed;
       printf("Advance\n");
     } else if (distanceDiff < 0) {
       //Back
-      *left_speed = -MOVE_SPEED_STRAIGHT;
-      *right_speed = -MOVE_SPEED_STRAIGHT;
+      *left_speed = -speed;
+      *right_speed = -speed;
       printf("Back\n");
     } else {
       //Stop
-      *left_speed = 0;
-      *right_speed = 0;
+      *left_speed = speed;
+      *right_speed = speed;
       printf("Stop\n");
 
       m_waitForStability.start(WAIT_SEC); // wait for stabiliry
@@ -194,7 +226,8 @@ void BalanceIF::MotionControl(char start, int left_enc, int right_enc, int *left
       m_saveLeftEnc = left_enc;
       m_saveRightEnc = right_enc;
       m_savePos.x = m_currentPos.x;
-      m_savePos.y = m_currentPos.y; 
+      m_savePos.y = m_currentPos.y;
+      m_speed = MOVE_SPEED_MAX; 
     }
 
   } else if ((m_controlMode == BlancerCtrlMode_Rotation_Left) ||
@@ -241,6 +274,7 @@ void BalanceIF::MotionControl(char start, int left_enc, int right_enc, int *left
 
       m_saveLeftEnc = left_enc;
       m_saveRightEnc = right_enc;
+      m_speed = MOVE_SPEED_MAX;
     }
   } else {
     //Goal

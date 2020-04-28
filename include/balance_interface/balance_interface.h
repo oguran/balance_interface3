@@ -102,6 +102,11 @@ private:
 
     Wait m_waitForStability;
 
+    int m_speed;
+
+    // ros::Time m_p0;
+    // int m_cnt;
+
 };
 
 #endif /* BALANCEIO_HPP_ */
