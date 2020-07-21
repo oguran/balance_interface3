@@ -3,6 +3,8 @@
  */
 
 #include <ros/ros.h>
+#include <std_msgs/Float64.h>
+#include <tf/tf.h>
 
 #include <stdio.h>
 //#include <stdlib.h>   //abs() for integer
@@ -87,7 +89,7 @@ void BalanceIF::BalanceCallback(const balance_msg::BalanceOdm& odm_msg)
   }
 
   //Notify Current Pos To Rviz
-  NotifyCurrentPos(m_currentPos.x, m_currentPos.y);
+  NotifyCurrentPos(m_currentPos.x, m_currentPos.y, m_currentPos.angle);
 
   // printf("\n");
 }
@@ -116,7 +118,7 @@ const double WAIT_SEC = 2.0;
 void BalanceIF::MotionControl(char start, int left_enc, int right_enc, int *left_speed, int *right_speed)
 {
   int aveEncCnt, speed;
-  double distance, distanceDiff, absDiistanceDiff;
+  double distance, distanceDiff, absDiistanceDiff, angleDiff;
 
   // m_cnt++;
   // ros::Time p1 = ros::Time::now();
@@ -128,6 +130,13 @@ void BalanceIF::MotionControl(char start, int left_enc, int right_enc, int *left
   // }
 
   *left_speed = *right_speed = 0;
+  geometry_msgs::Twist cmd_vel;
+  cmd_vel.linear.x = 0;  // +:forward, -:backword. m/s.
+  cmd_vel.linear.y = 0;
+  cmd_vel.linear.z = 0;
+  cmd_vel.angular.x = 0;
+  cmd_vel.angular.y = 0;
+  cmd_vel.angular.z = 0;  // -pi to pi. +:left, -:right. rad/s.
   if (m_waitForStability.isWaiting()) {
     printf("Waiting\n");
     if (m_waitForStability.isFinish()) {
@@ -138,12 +147,9 @@ void BalanceIF::MotionControl(char start, int left_enc, int right_enc, int *left
   } else if (m_controlMode == BlancerCtrlMode_Initialize) {
     m_saveLeftEnc = left_enc;
     m_saveRightEnc = right_enc;
-    m_currentPos.x = 0.00;
-    m_currentPos.y = 0.00;
-    m_targetPos.x = 0.00;
-    m_targetPos.y = 0.00;
-    m_savePos.x = 0.00;
-    m_savePos.y = 0.00;
+    m_currentPos.clear();
+    m_targetPos.clear();
+    m_savePos.clear();
     m_waitForStability.start(WAIT_SEC); // wait for stabiliry
     m_controlMode = BlancerCtrlMode_Standby;
     m_speed = MOVE_SPEED_MAX;
@@ -156,8 +162,7 @@ void BalanceIF::MotionControl(char start, int left_enc, int right_enc, int *left
       m_controlMode = BlancerCtrlMode_Move_X_Direction;
       m_saveLeftEnc = left_enc;
       m_saveRightEnc = right_enc;
-      m_savePos.x = m_currentPos.x;
-      m_savePos.y = m_currentPos.y; 
+      m_savePos = m_currentPos;
       printf("Go to Target\n");
     }
     m_speed = MOVE_SPEED_MAX;
@@ -197,18 +202,16 @@ void BalanceIF::MotionControl(char start, int left_enc, int right_enc, int *left
 
     if (distanceDiff > 0) {
       //Advance
-      *left_speed = speed;
-      *right_speed = speed;
+      cmd_vel.linear.x = 0.1 * speed; // fix me
+
       printf("Advance\n");
     } else if (distanceDiff < 0) {
       //Back
-      *left_speed = -speed;
-      *right_speed = -speed;
+      cmd_vel.linear.x = -0.1 * speed; // fix me
       printf("Back\n");
     } else {
       //Stop
-      *left_speed = speed;
-      *right_speed = speed;
+      cmd_vel.linear.x = 0.1 * speed; // fix me
       printf("Stop\n");
 
       m_waitForStability.start(WAIT_SEC); // wait for stabiliry
@@ -225,8 +228,7 @@ void BalanceIF::MotionControl(char start, int left_enc, int right_enc, int *left
       }
       m_saveLeftEnc = left_enc;
       m_saveRightEnc = right_enc;
-      m_savePos.x = m_currentPos.x;
-      m_savePos.y = m_currentPos.y;
+      m_savePos = m_currentPos;
       m_speed = MOVE_SPEED_MAX; 
     }
 
@@ -239,28 +241,34 @@ void BalanceIF::MotionControl(char start, int left_enc, int right_enc, int *left
     //distance calc
     distance = aveEncCnt * (TIRE_CIRCUMFERENCE / TIRE_AROUNT_ENCODER_CNT);
 
-    distanceDiff = (BALANCER_CIRCUMFERENCE / 4) - distance; // rotate 45 digrees
+    distanceDiff = (BALANCER_CIRCUMFERENCE / 4.0) - distance; // rotate 45 digrees
+    angleDiff = (PI / 2.0) * distance / (BALANCER_CIRCUMFERENCE / 4.0);
     //Cold Zone
     if (std::abs(distanceDiff) < COLD_ZONE) distanceDiff = 0;
 
     if (m_controlMode == BlancerCtrlMode_Rotation_Left) {
       distanceDiff *= -1;
+      m_currentPos.angle = m_savePos.angle + angleDiff;
+    } else {
+      m_currentPos.angle = m_savePos.angle - angleDiff;
     }
 
     if (distanceDiff > 0) {
       //rotation right
-      *left_speed = MOVE_SPEED_ROTATE;
-      *right_speed = -MOVE_SPEED_ROTATE;
+      // *left_speed = MOVE_SPEED_ROTATE;
+      // *right_speed = -MOVE_SPEED_ROTATE;
+      cmd_vel.angular.z = 0.1 * MOVE_SPEED_ROTATE;  // fix me
       printf("Rotation Right\n");
      } else if (distanceDiff < 0) {
       //rotation left
-      *left_speed = -MOVE_SPEED_ROTATE;
-      *right_speed = MOVE_SPEED_ROTATE;
+      // *left_speed = -MOVE_SPEED_ROTATE;
+      // *right_speed = MOVE_SPEED_ROTATE;
+      cmd_vel.angular.z = -0.1 * MOVE_SPEED_ROTATE;  // fix me
       printf("Rotation Left\n");
     } else {
       //Stop
-      *left_speed = 0;
-      *right_speed = 0;
+      // *left_speed = 0;
+      // *right_speed = 0;
       printf("Rotation Stop\n");
 
       //Mode Change
@@ -299,6 +307,16 @@ void BalanceIF::MotionControl(char start, int left_enc, int right_enc, int *left
   // printf("targetPos: %f, %f, currentPos: %f, %f\n", m_targetPos.x, m_targetPos.y, m_currentPos.x, m_currentPos.y);
   // printf("savePos: %f, %f\n", m_savePos.x, m_savePos.y);
 
+  *left_speed = 0;
+  *right_speed = 0;
+  if (cmd_vel.linear.x != 0) {
+    *left_speed = *right_speed = cmd_vel.linear.x * 10;  // fix me
+  } else if (cmd_vel.angular.z != 0) {
+    double speed = cmd_vel.angular.z * 10;  // fix me,  +:right, -:left
+    *right_speed = -speed;
+    *left_speed = speed;
+  }
+
   return;
 }
 
@@ -317,7 +335,6 @@ void BalanceIF::SetBalancerSpeed(int left_speed, int right_speed)
   return;
 }
 
-
 void BalanceIF::SetGoalCallback(const geometry_msgs::PoseStamped& msg)
 {
   if (m_controlMode != BlancerCtrlMode_Standby) {
@@ -334,7 +351,7 @@ void BalanceIF::SetGoalCallback(const geometry_msgs::PoseStamped& msg)
   //SetBalancerSpeed(0, 0);
 }
 
-void BalanceIF::NotifyCurrentPos(double x_pos, double y_pos)
+void BalanceIF::NotifyCurrentPos(double x_pos, double y_pos, double angle)
 {
   geometry_msgs::PoseStamped msg;
   static int seqNo = 0;
@@ -348,11 +365,8 @@ void BalanceIF::NotifyCurrentPos(double x_pos, double y_pos)
   msg.pose.position.y = y_pos;
   msg.pose.position.z = 0.0;
 
-  //@fix orientation
-  msg.pose.orientation.x = 0.0;
-  msg.pose.orientation.y = 0.0;
-  msg.pose.orientation.z = 0.0;
-  msg.pose.orientation.w = 1.0;
+//  msg.pose.orientation = tf::transformations::quaternion_from_euler(0.0, 0.0, angle);
+  msg.pose.orientation = tf::createQuaternionMsgFromYaw(angle);
 
   ui_pub.publish(msg);
   // printf("notify_pos publish, x: %f, y: %f\n", msg.pose.position.x,  msg.pose.position.y);

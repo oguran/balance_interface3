@@ -57,7 +57,7 @@ public:
     void SetBalancerSpeed(int left_speed, int right_speed);
 
     void SetGoalCallback(const geometry_msgs::PoseStamped& msg);
-    void NotifyCurrentPos(double x_pos, double y_pos);
+    void NotifyCurrentPos(double x_pos, double y_pos, double angle);
 
 //dfu I/F
 
@@ -76,8 +76,11 @@ private:
     ros::Subscriber ui_sub;
 
     struct BalancerPos {
-      double x;
-      double y;
+      double x;  // pos x on xy plane. unit:meter.
+      double y;  // pos y on xy plane. unit:meter.
+      double angle;  // rotation z axis. unit:radian.
+      BalancerPos() : x(0), y(0), angle(0) { }
+      void clear() { x = y = angle = 0; }
     };
 
     BalancerPos m_targetPos;
