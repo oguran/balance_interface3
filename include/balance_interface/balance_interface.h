@@ -43,6 +43,13 @@ private:
   ros::Time end;
 };
 
+struct EncodeData {
+  EncodeData() : enable(false), left(0), right(0) { };
+  bool enable;
+  int left;
+  int right;
+};
+
 class BalanceIF
 {
 public:
@@ -63,7 +70,13 @@ public:
 
 private:
 //	sub modules
-
+    void BuffPrint(const char * message) {
+      if (message == message_buffer) {
+        return;
+      }
+      message_buffer = message;
+      printf("%s", message);
+    }
 
 //value
     //ros::NodeHandle nh;
@@ -95,8 +108,10 @@ private:
       BlancerCtrlMode_Standby,
       BlancerCtrlMode_Move_X_Direction,
       BlancerCtrlMode_Rotation_Left,
+      BlancerCtrlMode_Rotation_On_X,
       BlancerCtrlMode_Move_Y_Direction,
       BlancerCtrlMode_Rotation_Right,
+      BlancerCtrlMode_Rotation_On_Y,
       BlancerCtrlMode_Goal,
       BlancerCtrlMode_Max,
     };
@@ -107,9 +122,12 @@ private:
 
     int m_speed;
 
+    double m_targetAngle;
+
     // ros::Time m_p0;
     // int m_cnt;
 
+    std::string message_buffer;
 };
 
 #endif /* BALANCEIO_HPP_ */

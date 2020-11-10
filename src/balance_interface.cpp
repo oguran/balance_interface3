@@ -13,7 +13,6 @@
 
 #include "balance_interface/balance_interface.h"
 
-
 BalanceIF::BalanceIF()
 {
 }
@@ -114,11 +113,24 @@ const double COLD_ZONE = 0.010; // m
 const double SLOW_ZONE = 0.100; // m
 const double MIDDLE_ZONE = 0.200; // m
 const double WAIT_SEC = 2.0;
+const double COLD_ANGLE = PI / (180 * 2); // radian
+
+namespace {
+  inline double angle_normalize(double angle) {
+    if (PI < angle) {
+      return angle_normalize(angle - 2 * PI);
+    }
+    if (-PI > angle) {
+      return angle_normalize(angle + 2 * PI);
+    }
+    return angle;
+  }
+}
 
 void BalanceIF::MotionControl(char start, int left_enc, int right_enc, int *left_speed, int *right_speed)
 {
   int aveEncCnt, speed;
-  double distance, distanceDiff, absDiistanceDiff, angleDiff;
+  double distance, distanceDiff, absDiistanceDiff, angleDiff, targetAngle, targetDirection;
 
   // m_cnt++;
   // ros::Time p1 = ros::Time::now();
@@ -138,10 +150,8 @@ void BalanceIF::MotionControl(char start, int left_enc, int right_enc, int *left
   cmd_vel.angular.y = 0;
   cmd_vel.angular.z = 0;  // -pi to pi. +:left, -:right. rad/s.
   if (m_waitForStability.isWaiting()) {
-    printf("Waiting\n");
+    BuffPrint("Waiting\n");
     if (m_waitForStability.isFinish()) {
-      // m_saveLeftEnc = left_enc;
-      // m_saveRightEnc = right_enc;
       m_waitForStability.clear();
     }
   } else if (m_controlMode == BlancerCtrlMode_Initialize) {
@@ -153,37 +163,119 @@ void BalanceIF::MotionControl(char start, int left_enc, int right_enc, int *left
     m_waitForStability.start(WAIT_SEC); // wait for stabiliry
     m_controlMode = BlancerCtrlMode_Standby;
     m_speed = MOVE_SPEED_MAX;
-    printf("Initialized\n");
+    BuffPrint("Initialized\n");
   } else if (m_controlMode == BlancerCtrlMode_Standby) {
     //Calc Distance Diff between current and target.
-    distanceDiff = std::max(std::abs(m_targetPos.x - m_currentPos.x), std::abs(m_targetPos.y - m_currentPos.y));
-    //Cold Zone
-    if (distanceDiff >= COLD_ZONE) {
-      m_controlMode = BlancerCtrlMode_Move_X_Direction;
+    if (std::abs(m_targetPos.x - m_currentPos.x) >= COLD_ZONE) {
+      m_controlMode = BlancerCtrlMode_Rotation_On_X;
+    } else if (std::abs(m_targetPos.y - m_currentPos.y) >= COLD_ZONE) {
+      m_controlMode = BlancerCtrlMode_Rotation_On_Y;
+    }
+
+    if (m_controlMode != BlancerCtrlMode_Standby) {
       m_saveLeftEnc = left_enc;
       m_saveRightEnc = right_enc;
       m_savePos = m_currentPos;
-      printf("Go to Target\n");
+      BuffPrint("Go to Target\n");
     }
     m_speed = MOVE_SPEED_MAX;
+  } else if ((m_controlMode == BlancerCtrlMode_Rotation_On_X) ||
+      (m_controlMode == BlancerCtrlMode_Rotation_On_Y)) {
+    if (m_controlMode == BlancerCtrlMode_Rotation_On_X) {
+      targetAngle = (m_targetPos.x - m_savePos.x >= 0.0) ? 0.0 : PI;
+    } else {
+      targetAngle = (m_targetPos.y - m_savePos.y >= 0.0) ? PI / 2 : -PI / 2;
+    }
+
+    //Encoder Ave Calc @fix left Only
+    // aveEncCnt = (std::abs(left_enc - m_saveLeftEnc) + std::abs(right_enc - m_saveRightEnc)) / 2;
+    //distance calc
+    // distance = aveEncCnt * (TIRE_CIRCUMFERENCE / TIRE_AROUNT_ENCODER_CNT);
+
+    // distanceDiff = (BALANCER_CIRCUMFERENCE / 4.0) - distance; // rotate 45 digrees
+    // angleDiff = (PI / 2.0) * distance / (BALANCER_CIRCUMFERENCE / 4.0);
+
+    // previous encode data
+    static EncodeData prv_enc;
+    if(!prv_enc.enable) {
+      prv_enc.enable = true;
+      prv_enc.left = m_saveLeftEnc;
+      prv_enc.right = m_saveRightEnc;
+    }
+
+    aveEncCnt = ((prv_enc.left - left_enc) - (prv_enc.right - right_enc)) / 2;
+    m_currentPos.angle = m_currentPos.angle + (double)aveEncCnt / TIRE_AROUNT_ENCODER_CNT * 2.0 * PI;
+    m_currentPos.angle = angle_normalize(m_currentPos.angle);
+    angleDiff = angle_normalize(targetAngle - m_currentPos.angle);
+
+    prv_enc.left = left_enc;
+    prv_enc.right = right_enc;
+
+    // std::cout << "left=" << m_saveLeftEnc << " -> " << left_enc << " right=" << m_saveRightEnc << " -> " << right_enc << " ave=" << aveEncCnt << std::endl;
+    // std::cout << "angle cur=" << m_currentPos.angle << " tgt=" << targetAngle << " diff=" << angleDiff << std::endl;
+
+    //Cold Zone
+    if (std::abs(angleDiff) < COLD_ANGLE) {
+      angleDiff = 0;
+      m_currentPos.angle = targetAngle;
+    }
+
+    if (angleDiff < 0) {
+      //rotation right
+      cmd_vel.angular.z = 0.1 * MOVE_SPEED_ROTATE;  // fix me
+      BuffPrint("Rotation Right\n");
+     } else if (angleDiff > 0) {
+      //rotation left
+      cmd_vel.angular.z = -0.1 * MOVE_SPEED_ROTATE;  // fix me
+      BuffPrint("Rotation Left\n");
+    } else {
+      //Stop
+      BuffPrint("Rotation Stop\n");
+
+      //Mode Change
+      if (m_controlMode == BlancerCtrlMode_Rotation_On_X) {
+        m_controlMode = BlancerCtrlMode_Move_X_Direction;
+      } else if (m_controlMode == BlancerCtrlMode_Rotation_On_Y){
+        m_controlMode = BlancerCtrlMode_Move_Y_Direction;
+      }
+
+      m_waitForStability.start(WAIT_SEC); // wait for stabiliry
+
+      prv_enc.enable = false;
+
+      m_saveLeftEnc = left_enc;
+      m_saveRightEnc = right_enc;
+      m_savePos = m_currentPos;
+      m_speed = MOVE_SPEED_MAX;
+    }
   } else if ((m_controlMode == BlancerCtrlMode_Move_X_Direction) ||
       (m_controlMode == BlancerCtrlMode_Move_Y_Direction)) {
-    //Move
+    if (m_controlMode == BlancerCtrlMode_Move_X_Direction) {
+      targetDirection = m_targetPos.x - m_savePos.x;
+    } else {
+      targetDirection = m_targetPos.y - m_savePos.y;
+    }
+    targetDirection = targetDirection >= 0 ? 1 : -1;
 
     //Encoder Ave Calc
     aveEncCnt = ((left_enc - m_saveLeftEnc) + (right_enc - m_saveRightEnc)) / 2;
     //distance calc
     distance = aveEncCnt * (TIRE_CIRCUMFERENCE / TIRE_AROUNT_ENCODER_CNT);
 
+    // std::cout << "left=" << m_saveLeftEnc << " -> " << left_enc << " right=" << m_saveRightEnc << " -> " << right_enc << " ave=" << aveEncCnt << std::endl;
+
     if (m_controlMode == BlancerCtrlMode_Move_X_Direction) {
       //X
-      m_currentPos.x = m_savePos.x + distance;
-      distanceDiff = m_targetPos.x - m_currentPos.x;
+      m_currentPos.x = m_savePos.x + distance * targetDirection;
+      distanceDiff = (m_targetPos.x - m_currentPos.x) * targetDirection;
+      // std::cout << "pos x cur=" << m_currentPos.x << " tgt=" << m_targetPos.x << " diff=" << distanceDiff << std::endl;
     } else {
       //Y
-      m_currentPos.y = m_savePos.y + distance;
-      distanceDiff = m_targetPos.y - m_currentPos.y;
+      m_currentPos.y = m_savePos.y + distance * targetDirection;
+      distanceDiff = (m_targetPos.y - m_currentPos.y) * targetDirection;
+      // std::cout << "pos y cur=" << m_currentPos.y << " tgt=" << m_targetPos.y << " diff=" << distanceDiff << std::endl;
     }
+
     //Cold Zone
     if (std::abs(distanceDiff) < COLD_ZONE) {
       distanceDiff = 0;
@@ -203,16 +295,15 @@ void BalanceIF::MotionControl(char start, int left_enc, int right_enc, int *left
     if (distanceDiff > 0) {
       //Advance
       cmd_vel.linear.x = 0.1 * speed; // fix me
-
-      printf("Advance\n");
+      BuffPrint("Advance\n");
     } else if (distanceDiff < 0) {
       //Back
       cmd_vel.linear.x = -0.1 * speed; // fix me
-      printf("Back\n");
+      BuffPrint("Back\n");
     } else {
       //Stop
       cmd_vel.linear.x = 0.1 * speed; // fix me
-      printf("Stop\n");
+      BuffPrint("Stop\n");
 
       m_waitForStability.start(WAIT_SEC); // wait for stabiliry
 
@@ -221,98 +312,30 @@ void BalanceIF::MotionControl(char start, int left_enc, int right_enc, int *left
         if (std::abs(m_targetPos.y - m_currentPos.y) < COLD_ZONE) {
           m_controlMode = BlancerCtrlMode_Goal;
         } else {
-          m_controlMode = BlancerCtrlMode_Rotation_Left;
+          m_controlMode = BlancerCtrlMode_Rotation_On_Y;
         }
       } else {
-        m_controlMode = BlancerCtrlMode_Rotation_Right;
+        m_controlMode = BlancerCtrlMode_Goal;
       }
       m_saveLeftEnc = left_enc;
       m_saveRightEnc = right_enc;
       m_savePos = m_currentPos;
       m_speed = MOVE_SPEED_MAX; 
     }
-
-  } else if ((m_controlMode == BlancerCtrlMode_Rotation_Left) ||
-      (m_controlMode == BlancerCtrlMode_Rotation_Right)) {
-    //rotation
-    //Encoder Ave Calc @fix left Only
-    aveEncCnt = (std::abs(left_enc - m_saveLeftEnc) + std::abs(right_enc - m_saveRightEnc)) / 2;
-    // aveEncCnt = (std::abs(left_enc - m_saveLeftEnc));
-    //distance calc
-    distance = aveEncCnt * (TIRE_CIRCUMFERENCE / TIRE_AROUNT_ENCODER_CNT);
-
-    distanceDiff = (BALANCER_CIRCUMFERENCE / 4.0) - distance; // rotate 45 digrees
-    angleDiff = (PI / 2.0) * distance / (BALANCER_CIRCUMFERENCE / 4.0);
-    //Cold Zone
-    if (std::abs(distanceDiff) < COLD_ZONE) distanceDiff = 0;
-
-    if (m_controlMode == BlancerCtrlMode_Rotation_Left) {
-      distanceDiff *= -1;
-      m_currentPos.angle = m_savePos.angle + angleDiff;
-    } else {
-      m_currentPos.angle = m_savePos.angle - angleDiff;
-    }
-
-    if (distanceDiff > 0) {
-      //rotation right
-      // *left_speed = MOVE_SPEED_ROTATE;
-      // *right_speed = -MOVE_SPEED_ROTATE;
-      cmd_vel.angular.z = 0.1 * MOVE_SPEED_ROTATE;  // fix me
-      printf("Rotation Right\n");
-     } else if (distanceDiff < 0) {
-      //rotation left
-      // *left_speed = -MOVE_SPEED_ROTATE;
-      // *right_speed = MOVE_SPEED_ROTATE;
-      cmd_vel.angular.z = -0.1 * MOVE_SPEED_ROTATE;  // fix me
-      printf("Rotation Left\n");
-    } else {
-      //Stop
-      // *left_speed = 0;
-      // *right_speed = 0;
-      printf("Rotation Stop\n");
-
-      //Mode Change
-      if (m_controlMode == BlancerCtrlMode_Rotation_Left) {
-        m_controlMode = BlancerCtrlMode_Move_Y_Direction;
-      } else {
-        m_controlMode = BlancerCtrlMode_Goal;
-      }
-
-      m_waitForStability.start(WAIT_SEC); // wait for stabiliry
-
-      m_saveLeftEnc = left_enc;
-      m_saveRightEnc = right_enc;
-      m_speed = MOVE_SPEED_MAX;
-    }
   } else {
     //Goal
-    printf("Goal\n");
+    BuffPrint("Goal\n");
 
     //Mode Change
     m_controlMode = BlancerCtrlMode_Standby;
   }
 
-  // for Debug
-  static const char * m_controlModeStrings[BlancerCtrlMode_Max] = {
-    "Init",
-    "Standby",
-    "Move_X",
-    "Rotation_Left",
-    "Move_Y",
-    "Rotation_Right",
-    "Goal",
-  };
-
-  // printf("next mode: %s, distanceDiff: %f\n", m_controlModeStrings[m_controlMode], distanceDiff);
-  // printf("targetPos: %f, %f, currentPos: %f, %f\n", m_targetPos.x, m_targetPos.y, m_currentPos.x, m_currentPos.y);
-  // printf("savePos: %f, %f\n", m_savePos.x, m_savePos.y);
-
   *left_speed = 0;
   *right_speed = 0;
   if (cmd_vel.linear.x != 0) {
-    *left_speed = *right_speed = cmd_vel.linear.x * 10;  // fix me
+    *left_speed = *right_speed = cmd_vel.linear.x * 10;  // fix me : m/s -> speed.
   } else if (cmd_vel.angular.z != 0) {
-    double speed = cmd_vel.angular.z * 10;  // fix me,  +:right, -:left
+    double speed = cmd_vel.angular.z * 10;  // fix me,  +:right, -:left : rad/s -> speed.
     *right_speed = -speed;
     *left_speed = speed;
   }
