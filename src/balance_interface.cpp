@@ -112,6 +112,7 @@ const double TIRE_AROUNT_ENCODER_CNT = (MOTOR_RATIO_IN / MOTOR_RATIO_OUT) * (GEA
 const double TIRE_CIRCUMFERENCE =  2 * PI * TIRE_RADIUS; // m
 const double WHEEL_DISTANCE = 0.100; // m
 const double BALANCER_CIRCUMFERENCE = WHEEL_DISTANCE * PI; // m
+const int MOVE_SPEED_GETTING_OVER = 18;
 const int MOVE_SPEED_STRAIGHT_HIGH = 8;
 const int MOVE_SPEED_STRAIGHT_MIDDLE = 5;
 const int MOVE_SPEED_STRAIGHT_SLOW = 3;
@@ -122,6 +123,7 @@ const double SLOW_ZONE = 0.100; // m
 const double MIDDLE_ZONE = 0.200; // m
 const double WAIT_SEC = 2.0;
 const double COLD_ANGLE = PI / (180 * 2); // radian
+const double OBSTAIN_ZONE = 0.2;
 
 namespace {
   inline double angle_normalize(double angle) {
@@ -297,7 +299,17 @@ void BalanceIF::MotionControl(char start, int left_enc, int right_enc, int *left
         speed = MOVE_SPEED_STRAIGHT_MIDDLE;
       }
     } else {
-      speed = MOVE_SPEED_STRAIGHT_HIGH;
+		speed = MOVE_SPEED_STRAIGHT_HIGH;
+		if(m_controlMode == BlancerCtrlMode_Move_X_Direction) {
+			if(std::abs(m_obstainPos.x - m_currentPos.x) < OBSTAIN_ZONE) {
+				speed = MOVE_SPEED_GETTING_OVER;
+			}
+		}
+		else if(m_controlMode == BlancerCtrlMode_Move_Y_Direction) {
+			if(std::abs(m_obstainPos.y - m_currentPos.y) < OBSTAIN_ZONE) {
+				speed = MOVE_SPEED_GETTING_OVER;
+			}
+		}
     }
 
     if (distanceDiff > 0) {
