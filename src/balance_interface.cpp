@@ -37,6 +37,9 @@ int BalanceIF::Init()
   m_saveLeftEnc = 0;
   m_saveRightEnc = 0;
 
+  m_obstainPos.x = 0.00;
+  m_obstainPos.y = 0.00;
+
   m_waitForStability.clear();
 
   return 0;
@@ -60,6 +63,11 @@ void BalanceIF::Start()
             "move_base_simple/goal", 10,
             &BalanceIF::SetGoalCallback, this);
   ui_pub = nh.advertise<geometry_msgs::PoseStamped>("/notify_pos", 10);
+
+  //for ui (obstacle pos)
+  ui_obstacle_sub = nh.subscribe(
+            "clicked_point", 10,
+            &BalanceIF::SetObstacleCallback, this);
 
   ros::Duration(0.5).sleep();
 
@@ -372,6 +380,15 @@ void BalanceIF::SetGoalCallback(const geometry_msgs::PoseStamped& msg)
 
   //start balancer @note speed:0 = Start Ctrl
   //SetBalancerSpeed(0, 0);
+}
+
+void BalanceIF::SetObstacleCallback(const geometry_msgs::PointStamped& msg)
+{
+  //from rvis
+  printf("SetObstacleCB: x=%f, y=%f\n", msg.point.x, msg.point.y);
+
+  m_obstainPos.x = msg.point.x;
+  m_obstainPos.y = msg.point.y;
 }
 
 void BalanceIF::NotifyCurrentPos(double x_pos, double y_pos, double angle)

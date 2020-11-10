@@ -11,6 +11,7 @@
 //#include "balance_interface/PosOdm.h"
 //#include "balance_interface/PosCmd.h"
 #include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/PointStamped.h>
 
 #define BL_STATUS_ERR  -1
 #define BL_STATUS_OK    0
@@ -66,6 +67,8 @@ public:
     void SetGoalCallback(const geometry_msgs::PoseStamped& msg);
     void NotifyCurrentPos(double x_pos, double y_pos, double angle);
 
+    void SetObstacleCallback(const geometry_msgs::PointStamped& msg);
+
 //dfu I/F
 
 private:
@@ -88,6 +91,8 @@ private:
     ros::Publisher ui_pub;
     ros::Subscriber ui_sub;
 
+    ros::Subscriber ui_obstacle_sub;
+
     struct BalancerPos {
       double x;  // pos x on xy plane. unit:meter.
       double y;  // pos y on xy plane. unit:meter.
@@ -99,6 +104,7 @@ private:
     BalancerPos m_targetPos;
     BalancerPos m_currentPos;
     BalancerPos m_savePos;
+    BalancerPos m_obstainPos;
 
     int m_saveLeftEnc;
     int m_saveRightEnc;
