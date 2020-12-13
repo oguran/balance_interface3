@@ -37,6 +37,11 @@ int BalanceIF::Init()
   m_saveLeftEnc = 0;
   m_saveRightEnc = 0;
 
+  m_shortPrevLeftEnc = 0;
+  m_shortPrevRightEnc = 0;
+  m_multiTurnCntLeft = 0;
+  m_multiTurnCntRight = 0;
+
   m_obstainPos.x = 0.00;
   m_obstainPos.y = 0.00;
 
@@ -82,13 +87,31 @@ void BalanceIF::Stop()
 void BalanceIF::BalanceCallback(const balance_msg::BalanceOdm& odm_msg)
 {
   int left_speed, right_speed;
+  int intLeftEnc, intRightEnc;
 
   //from balancer (notify odm)
   // printf("BalanceCB: le=%d re%d s1=%d s2=%d ls=%d rs=%d \n",
     // odm_msg.left_enc, odm_msg.right_enc, odm_msg.status_1, odm_msg.status_2, odm_msg.left_speed, odm_msg.right_speed);
   
+  // Calc for over flow short encoder count.
+  intLeftEnc = (int)odm_msg.left_enc - (int)m_shortPrevLeftEnc;
+  intRightEnc = (int)odm_msg.right_enc - (int)m_shortPrevRightEnc;
+  if (std::abs(intLeftEnc) > 0x7FFF) {
+    if (intLeftEnc > 0) m_multiTurnCntLeft--;
+    else m_multiTurnCntLeft++;
+  }
+  if (std::abs(intRightEnc) > 0x7FFF) {
+    if (intRightEnc > 0) m_multiTurnCntRight--;
+    else m_multiTurnCntRight++;
+  }
+  intLeftEnc  = m_multiTurnCntLeft  * 0x10000 + odm_msg.left_enc;
+  intRightEnc = m_multiTurnCntRight * 0x10000 + odm_msg.right_enc;
+  m_shortPrevLeftEnc = odm_msg.left_enc;
+  m_shortPrevRightEnc = odm_msg.right_enc;
+  //printf("intLeftEnc: %d, intRightEnc: %d, odm_msg.left_enc: %d, odm_msg.right_enc: %d\n", intLeftEnc, intRightEnc, odm_msg.left_enc, odm_msg.right_enc);
+
   //Calc balance Odometry to ui postion
-  MotionControl(odm_msg.status_1, odm_msg.left_enc, odm_msg.right_enc, &left_speed, &right_speed);
+  MotionControl(odm_msg.status_1, intLeftEnc, intRightEnc, &left_speed, &right_speed);
 
   if (odm_msg.status_1) {
     //set balancer speed To Arduino
@@ -112,8 +135,8 @@ const double TIRE_AROUNT_ENCODER_CNT = (MOTOR_RATIO_IN / MOTOR_RATIO_OUT) * (GEA
 const double TIRE_CIRCUMFERENCE =  2 * PI * TIRE_RADIUS; // m
 const double WHEEL_DISTANCE = 0.100; // m
 const double BALANCER_CIRCUMFERENCE = WHEEL_DISTANCE * PI; // m
-const int MOVE_SPEED_GETTING_OVER = 18;
-const int MOVE_SPEED_STRAIGHT_HIGH = 8;
+const int MOVE_SPEED_GETTING_OVER = 22;
+const int MOVE_SPEED_STRAIGHT_HIGH = 12;
 const int MOVE_SPEED_STRAIGHT_MIDDLE = 5;
 const int MOVE_SPEED_STRAIGHT_SLOW = 3;
 const int MOVE_SPEED_ROTATE = 1;
@@ -123,7 +146,7 @@ const double SLOW_ZONE = 0.100; // m
 const double MIDDLE_ZONE = 0.200; // m
 const double WAIT_SEC = 2.0;
 const double COLD_ANGLE = PI / (180 * 2); // radian
-const double OBSTAIN_ZONE = 0.2;
+const double OBSTAIN_ZONE = 0.3;
 
 namespace {
   inline double angle_normalize(double angle) {
@@ -425,5 +448,6 @@ void BalanceIF::NotifyCurrentPos(double x_pos, double y_pos, double angle)
 
   return;
 }
+
 
 ////////////////////////// END /////////////////////////

@@ -109,6 +109,11 @@ private:
     int m_saveLeftEnc;
     int m_saveRightEnc;
 
+    short m_shortPrevLeftEnc;
+    short m_shortPrevRightEnc;
+    short m_multiTurnCntLeft;
+    short m_multiTurnCntRight;
+
     enum BalancerCtrlMode {
       BlancerCtrlMode_Initialize = 0,
       BlancerCtrlMode_Standby,
